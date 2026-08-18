@@ -47,10 +47,17 @@ public:
 	// You must free the chunk's blocks
 	bool loadChunk(MCChunk * chunk, const MCGroup & gid, MCChunkPos cp);
 
+	// Single-threaded pre-pass over a modern (1.18+) world: collects every
+	// distinct block state into modern_registry and computes modern_shift_sub
+	// so content below Y=0 fits inside the 256-block height MC2MT supports.
+	void scanModern();
+
 private:
 	// You must free the chunk's blocks
 	bool readChunk(MCChunk * chunk, std::ifstream * f, MCChunkPos cp,
 			MCFormat format);
+	// Reads + decompresses one chunk payload into `data`; false if absent.
+	bool readChunkData(std::ifstream * f, MCChunkPos cp, std::string &data);
 
 	const std::string path;
 	NBT::Tag meta;
@@ -63,13 +70,18 @@ class MCBlock {
 public:
 	MCBlock(const NBT::Tag & chunk, MCChunkPos cp,
 		 uint8_t y_slice, MCFormat format,
-		 const NBT::Tag &sec = NBT::TagType::End);
+		 const NBT::Tag &sec = NBT::TagType::End, bool modern = false);
 	MCBlock(const MCBlock &) = delete;
 
 	MCPos pos;
 
+	// True when blocks[] already holds final Luanti content ids (modern
+	// world), so MTBlock can skip the numeric conversion table.
+	bool direct_content;
+
 private:
 	void fromSection(const NBT::Tag & section);
+	void fromModernSection(const NBT::Tag & section);
 	void fromChunk(const NBT::Tag & chunk, uint8_t y_slice);
 
 	static void reverseXAxis(uint16_t * data, const uint8_t * l);

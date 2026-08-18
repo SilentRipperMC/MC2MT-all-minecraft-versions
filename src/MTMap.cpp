@@ -239,23 +239,43 @@ MTBlock::MTBlock(const MCBlock & mcb)
 
 	const ConversionData default_cd = {false, 0, CONTENT_AIR, nullptr};
 
-	// Load all the nodes in the 16x16x16 block
-	for (uint16_t i = 0; i < NODES_PER_BLOCK; ++i) {
-		const ConversionData *cd;
-		if (!get_conversion(&cd, mcb.blocks[i], mcb.data[i])) {
-			MTMap::reportUnknown(mcb.blocks[i], mcb.data[i]);
-			cd = &default_cd;
+	if (mcb.direct_content) {
+		// Modern world: blocks[] already holds final content ids.
+		// data[] carries param2 for candles (palette index), banners
+		// (low nibble: rotation / wallmounted) and stairs (full facedir
+		// 0-23, so the 0xF mask must not apply there).
+		for (uint16_t i = 0; i < NODES_PER_BLOCK; ++i) {
+			content[i] = mcb.blocks[i];
+			const std::string & nm = MTMap::getName(content[i]);
+			// "mcl_stairs:stair_" is 17 chars; compare(0,15,...) would
+			// compare the 15-char prefix against the whole literal and
+			// never match, so use the full length.
+			if (nm.compare(0, 17, "mcl_stairs:stair_") == 0) {
+				param2[i] = mcb.data[i];
+			} else {
+				param2[i] = mcb.data[i] & 0xF;
+			}
+			param1[i] = 0;
 		}
+	} else {
+		// Load all the nodes in the 16x16x16 block
+		for (uint16_t i = 0; i < NODES_PER_BLOCK; ++i) {
+			const ConversionData *cd;
+			if (!get_conversion(&cd, mcb.blocks[i], mcb.data[i])) {
+				MTMap::reportUnknown(mcb.blocks[i], mcb.data[i]);
+				cd = &default_cd;
+			}
 
-		if (cd->cb) {
-			callbacks.emplace_back(i, cd->cb);
+			if (cd->cb) {
+				callbacks.emplace_back(i, cd->cb);
+			}
+
+			content[i] = cd->cid;
+			param2[i] = cd->param2;
+			// Day light in lower half, night light in upper half
+			param1[i] = (mcb.block_light[i] << 4) |
+				std::max(mcb.block_light[i], mcb.sky_light[i]);
 		}
-
-		content[i] = cd->cid;
-		param2[i] = cd->param2;
-		// Day light in lower half, night light in upper half
-		param1[i] = (mcb.block_light[i] << 4) |
-			std::max(mcb.block_light[i], mcb.sky_light[i]);
 	}
 
 	for (const auto & te : mcb.tile_entities) {
@@ -269,8 +289,14 @@ MTBlock::MTBlock(const MCBlock & mcb)
 		int32_t x = (NBT::Int)te["x"];
 		int32_t y = (NBT::Int)te["y"];
 		int32_t z = (NBT::Int)te["z"];
-		auto ret = converter(te);
-		meta.emplace_back(BLOCK_NODE_IDX(x & 0xF, y & 0xF, z & 0xF), ret.second);
+		uint16_t idx = BLOCK_NODE_IDX(x & 0xF, y & 0xF, z & 0xF);
+		// The banner converter needs the per-node state (base color and
+		// rotation/wallmounted, packed in mcb.data) and whether the node
+		// is the hanging variant.
+		bool hanging = MTMap::getName(content[idx]) ==
+				"mcl_banners:hanging_banner";
+		auto ret = converter(te, mcb.data[idx], hanging);
+		meta.emplace_back(idx, ret.second);
 		if (ret.first)
 			owned_meta.push_back(ret.second);
 	}
@@ -458,11 +484,17 @@ void MTBlock::serializeInventoryList(std::string * data,
 				*data += "Empty\n";
 				continue;
 			}
+			// Luanti's ItemStack serialization: "Item <name> <count> <wear>"
+			// plus the JSON-quoted metadata string when the stack carries
+			// metadata (item.meta already contains the quoted form).
 			*data += "Item ";
 			*data += MTMap::getName(item.item);
 			*data += ' ';
 			*data += std::to_string(item.count);
-			// TODO: Item meta?
+			if (!item.meta.empty()) {
+				*data += " 0 ";
+				*data += item.meta;
+			}
 			*data += '\n';
 		}
 		// "EndInventoryList" ends Inventories, "EndInventory" ends InventoryLists.

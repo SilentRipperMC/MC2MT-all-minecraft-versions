@@ -56,6 +56,9 @@ ULong Tag::getSerializedSize() const
 	case TagType::IntArray:
 		return sizeof(Short) // Size
 			+ value.v_int_array.size * sizeof(Int); // Ints
+	case TagType::LongArray:
+		return sizeof(Int) // Size
+			+ value.v_long_array.size * sizeof(Long); // Longs
 	}
 	return 0;
 }
@@ -142,6 +145,14 @@ std::string Tag::write(bool write_type) const
 		for (; i < value.v_int_array.size; i++) {
 			writeInt(bytes + index, value.v_int_array.value[i]);
 			index += sizeof(Int);
+		}
+		break;
+	case TagType::LongArray:
+		writeInt(bytes + index, value.v_long_array.size);
+		index += sizeof(Int);
+		for (; i < value.v_long_array.size; i++) {
+			writeLong(bytes + index, value.v_long_array.value[i]);
+			index += sizeof(Long);
 		}
 		break;
 	}
@@ -235,6 +246,15 @@ std::string Tag::dump(const std::string &indent, UByte level) const
 		}
 		os << end_idt_str << ']';
 		break;
+	case TagType::LongArray:
+		os << "long[";
+		for (UInt i = 0; i < value.v_long_array.size; i++) {
+			if (i != 0)
+				os << sep_str;
+			os << idt_str << value.v_long_array.value[i];
+		}
+		os << end_idt_str << ']';
+		break;
 	default:
 		os << "<UNKNOWN TAG>";
 	}
@@ -325,6 +345,9 @@ void Tag::readTag(const UByte *bytes, ULong &index, TagType tag)
 		break;
 	case TagType::IntArray:
 		value.v_int_array = readIntArray(bytes, index);
+		break;
+	case TagType::LongArray:
+		value.v_long_array = readLongArray(bytes, index);
 		break;
 	default:
 		throw std::runtime_error("Invalid tag type " +
@@ -434,6 +457,22 @@ IntArray readIntArray(const UByte *bytes, ULong &index)
 	for (UInt i = 0; i < x.size; i++) {
 		x.value[i] = readInt(bytes + index);
 		index += sizeof(Int);
+	}
+	return x;
+}
+
+
+LongArray readLongArray(const UByte *bytes, ULong &index)
+{
+	LongArray x;
+	x.size = readInt(bytes + index);
+	index += sizeof(Int);
+	if (x.size > 0) {
+		x.value = new Long[x.size];
+	}
+	for (UInt i = 0; i < x.size; i++) {
+		x.value[i] = readLong(bytes + index);
+		index += sizeof(Long);
 	}
 	return x;
 }

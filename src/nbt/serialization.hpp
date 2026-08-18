@@ -33,6 +33,7 @@ extern String     readString   (const UByte * bytes, ULong & index);
 extern List       readList     (const UByte * bytes, ULong & index);
 extern Compound * readCompound (const UByte * bytes, ULong & index);
 extern IntArray   readIntArray (const UByte * bytes, ULong & index);
+extern LongArray  readLongArray(const UByte * bytes, ULong & index);
 
 } // namespace NBT
 

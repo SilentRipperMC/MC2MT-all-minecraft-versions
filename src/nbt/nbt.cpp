@@ -145,6 +145,10 @@ void Tag::setTag(const TagType tag, UInt size, TagType subtype)
 		value.v_int_array.size = size;
 		if (size) value.v_int_array.value = new Int[size];
 		break;
+	case TagType::LongArray:
+		value.v_long_array.size = size;
+		if (size) value.v_long_array.value = new Long[size];
+		break;
 	default:
 		memset((void*) &value, 0, sizeof(value));
 	}
@@ -194,6 +198,14 @@ void Tag::copy(const Tag &t)
 		memcpy((void*) value.v_int_array.value,
 				(void*) t.value.v_int_array.value, size * sizeof(Int));
 		break;
+	case TagType::LongArray:
+		size = t.value.v_long_array.size;
+		value.v_long_array.size = size;
+		if (!size) break;
+		value.v_long_array.value = new Long[size];
+		memcpy((void*) value.v_long_array.value,
+				(void*) t.value.v_long_array.value, size * sizeof(Long));
+		break;
 	default:
 		value = t.value;
 	}
@@ -221,6 +233,10 @@ void Tag::free()
 	case TagType::IntArray:
 		if (value.v_int_array.size)
 			delete [] value.v_int_array.value;
+		break;
+	case TagType::LongArray:
+		if (value.v_long_array.size)
+			delete [] value.v_long_array.value;
 		break;
 	default:
 		break;
@@ -266,6 +282,23 @@ void Tag::insert(const Int k, const Int i)
 	UInt ak = TOABS(k, value.v_list.size);
 	ensureSize<IntArray, Int>(&value.v_int_array, ak + 1);
 	value.v_int_array.value[ak] = i;
+}
+
+
+void Tag::insert(const Int k, const Long l)
+{
+	assert(type == TagType::LongArray);
+	UInt ak = TOABS(k, value.v_long_array.size);
+	if (ak + 1 > value.v_long_array.size) {
+		Long * newv = new Long[ak + 1];
+		for (UInt i = 0; i < value.v_long_array.size; i++)
+			newv[i] = value.v_long_array.value[i];
+		if (value.v_long_array.size)
+			delete [] value.v_long_array.value;
+		value.v_long_array.value = newv;
+		value.v_long_array.size = ak + 1;
+	}
+	value.v_long_array.value[ak] = l;
 }
 
 

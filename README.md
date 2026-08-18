@@ -1,27 +1,36 @@
 # MC2MT
-Converts a Minecraft world into a Luanti world. Compared to the `mcimport` tool written in Python it is **very fast**, and also allows for multhreading the workflow making it even faster.
 
-This tool should be compatible with Minecraft worlds stored in Scaevolous' McRegion format as well as Anvil format, up until Minecraft 1.12 (pre-flattening). It is however recommended that if you have a world in an older version of Minecraft that you fully upgrade it to the 1.12 Anvil format for best support as that is what the program is usually tested against.
+Converts a **Minecraft Java world directly into a Luanti (Minetest) world for Mineclonia**, without any intermediate step. Compared to the `mcimport` tool written in Python it is **very fast**, and also allows for multithreading the workflow making it even faster.
 
-If you have a Minecraft world post-flattening (i.e. 1.13 or newer), then you can convert it to the 1.12 format using [Amulet](https://www.amuletmc.com/).
+No Amulet, no conversion to Minecraft 1.12: the modern Anvil format is read directly, block by block, and each block state is mapped to a Mineclonia node.
 
-When mapping Minecraft block IDs and data values into Luanti itemstrings and param2 values, a set of mappings for Mineclonia is used which can be found at `src/conversions.h`. When you put the converted world into your worlds folder it will be visible in the main menu when you select Mineclonia (not MineClone2, not Minetest Game).
+The modern conversion path supports **Minecraft 1.13+** (post-flattening, detected via `DataVersion >= 1500`, including 1.21.x). Worlds from **1.12 and earlier** still convert through the legacy pre-flattening path, but with a much smaller block mapping.
 
-Currently, the mappings are mostly complete for basic full building blocks, as that is what my usecase for a converter program is. If you convert a world that contains more complex blocks and it gets converted wrongly then please help fixing them so it can become better.
+## Features
+
+- **Direct 1.21+ → Mineclonia**: reads modern chunks (`block_states` palette + block entities) and writes a Luanti `map.sqlite` world. Worlds from 1.13–1.17 (post-flattening) are also supported as long as the region files use the modern section format.
+- **~1700 block state mappings** (see `BLOCK_MAPPING.md`), each node name verified against the Mineclonia game files:
+  - doors (upper/lower half), beds (head/foot + direction), candles (count, lit state, color via `param2`), stairs (straight/inner/outer + direction + upside-down), pointed dripstone (stalactite/stalagmite stages), light blocks (`light_0`–`light_14`), suspicious sand/gravel
+  - **sign text is preserved** (front/back, color, glow)
+  - **banner colors and patterns are preserved** (item inventory + `layers` metadata)
+- Blocks without a Mineclonia equivalent are replaced by a visible redstone wall torch so nothing silently disappears — the full list is in `BLOCKS_NON_CONVERTIS.txt`.
+- The converter writes a `world.mt`, a singlenode `map_meta.txt` and a helper worldmod, so the converted world opens directly in Mineclonia.
 
 ## Usage
-It is a command-line program. Call it from the terminal with two arguments, first argument is the input Minecraft world and second argument is the output Luanti world. For example:
+
+It is a command-line program. Call it from the terminal with two arguments: the input Minecraft world and the output Luanti world.
 
 ```bash
 ./MC2MT ~/.minecraft/worlds/cool_world/ ~/.minetest/worlds/cool_world/
 ```
 
-The program will also make a `world.mt` file as well as a worldmod that sets the mapgen to singlenode along with other things. If it detects a map database already present in the output location it will ask you before overwriting it.
+The output directory must be empty (or contain no `map.sqlite` yet).
 
 ## Building
-There is CI in place for building on Windows, macOS and Linux, which also produce binary artifacts that get uploaded to the [rolling](https://github.com/rollerozxa/MC2MT/releases/tag/rolling) release tag. This is especially useful for Windows users who do not want to compile, but it is unknown if the produced macOS binaries work, and the Linux binary may not work for you depending on what distribution you are on. If the pre-built binaries do not work, follow along to build from source.
 
-All instructions below assume you have already downloaded or cloned the source code somewhere (e.g. `git clone https://github.com/rollerozxa/MC2MT`).
+There is CI in place for building on Windows, macOS and Linux, which also produces binary artifacts uploaded to the `rolling` release tag. If the pre-built binaries do not work, follow along to build from source.
+
+All instructions below assume you have already downloaded or cloned the source code somewhere (e.g. `git clone <your-fork-url>`).
 
 ### Linux
 Install the dependencies. In addition to a compiler toolchain, MC2MT requires SQLite3 and Zlib.
@@ -63,8 +72,6 @@ ninja
 
 The resulting executable can be found as `./bin/MC2MT.exe`.
 
-The executable can be run perfectly fine inside of the UCRT64 environment, but if you want to run it outside of MSYS2 (somewhy) then you will need to bundle the necessary DLL files next to it. To collect them up see the [msys2-bundledlls](https://github.com/rollerozxa/msys2-bundledlls) script, or how the CI does it to statically link the necessary libraries into the executable.
-
 ### Android
 You will need to install [Termux](https://termux.dev/). When installed, install the following packages in Termux:
 
@@ -97,9 +104,26 @@ ninja
 
 The resulting executable can be found as `./bin/MC2MT`.
 
+## Regenerating the block mapping
+
+The mapping table in `src/modern.cpp` is generated by the scripts in `tools/`:
+
+```bash
+# 1. Build the two ground-truth files (Minecraft block ids + Mineclonia node names)
+#    and run the mapping generator:
+python3 tools/gen_mapping.py
+python3 tools/gen_cpp.py
+```
+
+`tools/gen_mapping.py` reads:
+- a list of Minecraft block names (one per line),
+- a list of Mineclonia node names found in the game (one per line),
+and emits the full mapping. `tools/gen_cpp.py` turns that mapping into the C++ table used by `src/modern.cpp`.
+
 ## Credits
+
 The original MC2MT was written by ShadowNinja, assumedly rewriting things from the Python `mcimport` project by sofar, Ekdohibs et al.
 
-The Mineclonia node mappings are based on the `mcimport` node mappings for MineClone2 by MysticTempest.
+The Mineclonia node mappings are based on the `mcimport` node mappings for MineClone2 by MysticTempest, extended with the full 1.21 block state set.
 
 License: LGPLv2.1+

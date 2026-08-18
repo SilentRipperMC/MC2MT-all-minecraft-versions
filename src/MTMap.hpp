@@ -46,6 +46,9 @@ struct MTItemStack {
 	uint16_t count;
 	uint16_t wear;
 	content_t item;
+	// Optional item metadata, pre-serialized as the JSON-quoted string
+	// Luanti writes after "Item <name> <count> <wear>".  Empty = none.
+	std::string meta;
 };
 
 

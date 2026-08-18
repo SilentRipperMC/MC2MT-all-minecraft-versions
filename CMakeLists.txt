@@ -26,6 +26,7 @@ include_directories(
 set(SRCS
 	src/main.cpp
 	src/convert.cpp
+	src/modern.cpp
 	src/threads.cpp
 	src/MCMap.cpp
 	src/MTMap.cpp

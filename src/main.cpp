@@ -1,5 +1,6 @@
 #include "MCMap.hpp"
 #include "MTMap.hpp"
+#include "modern.hpp"
 #include "threads.hpp"
 
 #include <iostream>
@@ -27,6 +28,15 @@ int main(int argc, char *argv[])
 
 	MCMap mc_map(argv[1]);
 	MTMap mt_map(argv[2]);
+
+	if (modern_enabled) {
+		std::cerr << "Modern world detected; scanning block states..."
+			<< std::endl;
+		mc_map.scanModern();
+		modern_registry.write_worldmod(argv[2]);
+	} else {
+		load_custom_conversions(argv[1], argv[2]);
+	}
 
 	std::vector<MCGroup*> groups;
 	mc_map.listGroups(groups);

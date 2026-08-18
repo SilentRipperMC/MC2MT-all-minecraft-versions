@@ -1,0 +1,51 @@
+Blocks Minecraft non convertis en Mineclonia
+============================================================
+Ces blocs n'existent pas dans Mineclonia et sont remplacés par
+une torche de redstone murale (mcl_redstone_torch:redstone_torch_off_wall)
+pour rester visibles dans le monde.
+
+Total : 43 blocs
+
+acacia_shelf
+bamboo_shelf
+birch_shelf
+cherry_shelf
+copper_chest
+copper_golem_statue
+crafter
+crimson_shelf
+dark_oak_shelf
+dried_ghast
+exposed_copper_chest
+exposed_copper_golem_statue
+frogspawn
+jungle_shelf
+mangrove_shelf
+oak_shelf
+ochre_froglight
+oxidized_copper_chest
+oxidized_copper_golem_statue
+pale_oak_shelf
+pearlescent_froglight
+pitcher_crop
+pitcher_plant
+sniffer_egg
+spruce_shelf
+test_block
+test_instance_block
+torchflower_crop
+tripwire
+tripwire_hook
+turtle_egg
+verdant_froglight
+warped_shelf
+waxed_copper_chest
+waxed_copper_golem_statue
+waxed_exposed_copper_chest
+waxed_exposed_copper_golem_statue
+waxed_oxidized_copper_chest
+waxed_oxidized_copper_golem_statue
+waxed_weathered_copper_chest
+waxed_weathered_copper_golem_statue
+weathered_copper_chest
+weathered_copper_golem_statue

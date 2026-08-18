@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    echo "Usage: $0 <monde-minecraft> <monde-luanti>" >&2
+    echo "Exemple: $0 ~/.minecraft/worlds/cool_world/ ~/.minetest/worlds/cool_world/" >&2
+    exit 2
+}
+
+[ "$#" -eq 2 ] || usage
+
+input=$1
+output=$2
+script_dir=$(cd -- "$(dirname -- "$0")" && pwd)
+mc2mt="$script_dir/build/bin/MC2MT"
+
+if [ ! -d "$input" ]; then
+    echo "Erreur : monde Minecraft introuvable : $input" >&2
+    exit 1
+fi
+
+if [ ! -f "$input/level.dat" ]; then
+    echo "Erreur : le dossier source ne contient pas level.dat : $input" >&2
+    exit 1
+fi
+
+if [ ! -x "$mc2mt" ]; then
+    echo "Erreur : MC2MT absent ou non exécutable : $mc2mt" >&2
+    echo "Compile-le avec : cmake --build build" >&2
+    exit 1
+fi
+
+if [ -e "$output/map.sqlite" ]; then
+    echo "Erreur : la destination contient déjà map.sqlite : $output" >&2
+    echo "Choisis un nouveau dossier ou vide cette destination volontairement avant de recommencer." >&2
+    exit 1
+fi
+
+printf '%s\n' "Conversion directe Minecraft 1.21+ -> Luanti (Mineclonia)..."
+"$mc2mt" "$input" "$output"
+
+if [ ! -f "$output/world.mt" ] || [ ! -f "$output/map.sqlite" ]; then
+    echo "Erreur : la sortie Luanti est incomplète : $output" >&2
+    exit 1
+fi
+
+printf '%s\n' "Conversion terminée : $output"
