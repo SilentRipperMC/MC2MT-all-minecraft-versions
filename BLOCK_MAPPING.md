@@ -1,6 +1,6 @@
 # MC2MT — Table complète des blocs Minecraft 1.21+ → Mineclonia
 
-**1679 entrées de mappage** couvrant les blocs de Minecraft 1.21.4 (dont les variantes d'état pour les portes, bougies, lits, blocs de lumière, stalactites et escaliers).
+**1872 entrées de mappage** couvrant les blocs de Minecraft 1.21.4 (dont les variantes d'état pour les portes, trapdoors, slabs, bougies, lits, blocs de lumière, stalactites et escaliers).
 
 Chaque nom de nœud a été **vérifié** contre les fichiers du jeu Mineclonia
 (mods `mcl_*`). Les blocs sans équivalent Mineclonia retombent sur une
@@ -87,6 +87,7 @@ Les **panneaux** gardent leur texte (meta `utext` + couleur + glow).
 | `bamboo_stairs|outer_right` | `mcl_stairs:stair_bamboo_outer` |
 | `bamboo_stairs|straight` | `mcl_stairs:stair_bamboo` |
 | `bamboo_trapdoor` | `mcl_doors:trapdoor_bamboo` |
+| `bamboo_trapdoor|open` | `mcl_doors:trapdoor_bamboo_open` |
 | `bamboo_wall_hanging_sign` | `mcl_signs:hanging_sign_bamboo` |
 | `bamboo_wall_sign` | `mcl_signs:wall_sign_bamboo` |
 | `barrel` | `mcl_barrels:barrel_closed` |
@@ -936,9 +937,11 @@ Les **panneaux** gardent leur texte (meta `utext` + couleur + glow).
 | `note_block` | `mcl_noteblock:noteblock` |
 | `noteblock` | `mcl_noteblock:noteblock` |
 | `oak_button` | `mcl_buttons:button_oak_off` |
-| `oak_door` | `mcl_doors:door_oak_t_1` |
-| `oak_door|lower` | `mcl_doors:door_oak_t_1` |
-| `oak_door|upper` | `mcl_doors:door_oak_t_2` |
+| `oak_door` | `mcl_doors:door_oak_b_1` |
+| `oak_door|lower` | `mcl_doors:door_oak_b_1` |
+| `oak_door|lower|open` | `mcl_doors:door_oak_b_2` |
+| `oak_door|upper` | `mcl_doors:door_oak_t_1` |
+| `oak_door|upper|open` | `mcl_doors:door_oak_t_2` |
 | `oak_fence` | `mcl_fences:oak_fence` |
 | `oak_fence_gate` | `mcl_fences:oak_fence_gate` |
 | `oak_hanging_sign` | `mcl_signs:hanging_sign_oak` |
@@ -949,6 +952,8 @@ Les **panneaux** gardent leur texte (meta `utext` + couleur + glow).
 | `oak_sapling` | `mcl_trees:sapling_oak` |
 | `oak_sign` | `mcl_signs:standing_sign_oak` |
 | `oak_slab` | `mcl_stairs:slab_oak` |
+| `oak_slab|double` | `mcl_stairs:slab_oak_double` |
+| `oak_slab|top` | `mcl_stairs:slab_oak_top` |
 | `oak_stairs` | `mcl_stairs:stair_oak` |
 | `oak_stairs|inner_left` | `mcl_stairs:stair_oak_inner` |
 | `oak_stairs|inner_right` | `mcl_stairs:stair_oak_inner` |

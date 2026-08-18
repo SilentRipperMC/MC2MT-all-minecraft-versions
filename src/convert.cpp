@@ -561,12 +561,13 @@ std::pair<bool, MTNodeMeta*> convert_banner(const NBT::Tag &te,
 	// Mirror the rotation for the converted (180-degree-rotated) world.
 	int rotation_level;
 	if (hanging) {
-		// wallmounted param2 (north=4, south=5, east=3, west=2) -> level:
-		// north->8, south->0, east->4, west->12.
+		// Hanging banners use param2 values west=2, east=3, north=5,
+		// south=4. Convert them to Mineclonia's cardinal rotation levels.
 		switch (state) {
 		case 2: rotation_level = 12; break;
 		case 3: rotation_level = 4;  break;
-		case 4: rotation_level = 8;  break;
+		case 4: rotation_level = 0;  break;
+		case 5: rotation_level = 8;  break;
 		default: rotation_level = 0; break;
 		}
 	} else {

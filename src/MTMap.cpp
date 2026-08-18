@@ -250,7 +250,10 @@ MTBlock::MTBlock(const MCBlock & mcb)
 			// "mcl_stairs:stair_" is 17 chars; compare(0,15,...) would
 			// compare the 15-char prefix against the whole literal and
 			// never match, so use the full length.
-			if (nm.compare(0, 17, "mcl_stairs:stair_") == 0) {
+			if (nm.compare(0, 17, "mcl_stairs:stair_") == 0 ||
+					nm.compare(0, 10, "mcl_doors:") == 0 ||
+					nm.compare(0, 10, "mcl_signs:") == 0 ||
+					nm.compare(0, 12, "mcl_buttons:") == 0) {
 				param2[i] = mcb.data[i];
 			} else {
 				param2[i] = mcb.data[i] & 0xF;

@@ -211,6 +211,72 @@ static int modern_prop_int(const NBT::Compound & props, const char *key)
 	}
 }
 
+static bool modern_prop_true(const NBT::Compound & props, const char *key)
+{
+	auto it = props.find(key);
+	return it != props.end() && it->second.as<std::string>() == "true";
+}
+
+// Mineclonia's facedir convention used by the existing modern stair
+// conversion: north=0, east=1, south=2, west=3.
+static int modern_facedir_for(const std::string &facing)
+{
+	if (facing == "north") return 0;
+	if (facing == "east") return 1;
+	if (facing == "south") return 2;
+	return 3;  // west (and the safe default)
+}
+
+static uint8_t modern_wallmounted_for(const std::string &facing)
+{
+	if (facing == "north") return 4;
+	if (facing == "south") return 5;
+	if (facing == "east") return 3;
+	return 2;  // west
+}
+
+// Mineclonia's trapdoor facedir is mirrored relative to the generic
+// Minecraft-facing conversion used by doors and stairs.
+static uint8_t modern_trapdoor_p2(int facedir, bool top)
+{
+	static const uint8_t bottom_p2[4] = {2, 3, 0, 1};
+	static const uint8_t top_p2[4] = {22, 21, 20, 23};
+	if (facedir < 0 || facedir > 3)
+		facedir = 0;
+	return top ? top_p2[facedir] : bottom_p2[facedir];
+}
+
+static uint8_t modern_button_wallmounted_for(const std::string &facing)
+{
+	if (facing == "north") return 5;
+	if (facing == "south") return 4;
+	if (facing == "east") return 3;
+	return 2;  // west
+}
+
+// Hanging banners use the same wallmounted range, but exchange 4 and 5.
+static uint8_t modern_banner_wallmounted_for(const std::string &facing)
+{
+	uint8_t p2 = modern_wallmounted_for(facing);
+	if (p2 == 4) return 5;
+	if (p2 == 5) return 4;
+	return p2;
+}
+
+static uint8_t modern_degrotate_for(int rotation)
+{
+	if (rotation < 0 || rotation > 15)
+		rotation = 0;
+	return static_cast<uint8_t>(((16 - rotation) & 15) * 15);
+}
+
+static uint8_t modern_fourdir_for(int rotation)
+{
+	if (rotation < 0)
+		rotation = 0;
+	return static_cast<uint8_t>(((16 - (rotation & 15) + 2) & 15) / 4);
+}
+
 // MC color name (e.g. "light_gray", "red") -> Mineclonia candle
 // palette_index (param2).  Order matches mcl_dyes palette.
 static uint8_t candle_palette_index(const std::string &mc_color)
@@ -236,9 +302,9 @@ static int banner_base_color(const std::string &name)
 		{"brown", 12}, {"green", 13}, {"red", 14}, {"black", 15},
 	};
 	std::string base = name;
-	if (base.size() >= 11 &&
-			base.compare(base.size() - 11, 11, "_wall_banner") == 0)
-		base.resize(base.size() - 11);
+	if (base.size() >= 12 &&
+			base.compare(base.size() - 12, 12, "_wall_banner") == 0)
+		base.resize(base.size() - 12);
 	else if (base.size() >= 7 &&
 			base.compare(base.size() - 7, 7, "_banner") == 0)
 		base.resize(base.size() - 7);
@@ -298,14 +364,52 @@ static void parse_modern_section(const NBT::Tag &section,
 				full : full.substr(colon + 1);
 		try {
 			const NBT::Compound & props = entry["Properties"];
-			// Thread the door "half" block state through so doors map to
-			// the correct Mineclonia half (_t_1 bottom / _t_2 top).
-			// Trapdoors also carry a "half" state but use one node.
+			// Doors have distinct Mineclonia nodes for bottom/top and
+			// closed/open.  Keep both block states in the lookup key.
 			if (name.size() >= 5 &&
 					name.compare(name.size() - 5, 5, "_door") == 0) {
+				std::string half = "lower";
 				auto hit = props.find("half");
 				if (hit != props.end())
-					name += "|" + hit->second.as<std::string>();
+					half = hit->second.as<std::string>();
+				name += "|" + half;
+				if (modern_prop_true(props, "open"))
+					name += "|open";
+
+				std::string facing = "north";
+				auto f_it = props.find("facing");
+				if (f_it != props.end())
+					facing = f_it->second.as<std::string>();
+				pal_data[i] = static_cast<uint8_t>(modern_facedir_for(facing));
+			}
+
+			// Trapdoors use a facedir for orientation and add 20 for the
+			// upper half. Open state selects Mineclonia's *_open node.
+			if (name.size() >= 9 &&
+					name.compare(name.size() - 9, 9, "_trapdoor") == 0) {
+				std::string facing = "north";
+				auto f_it = props.find("facing");
+				if (f_it != props.end())
+					facing = f_it->second.as<std::string>();
+				int facedir = modern_facedir_for(facing);
+				std::string half;
+				auto h_it = props.find("half");
+				if (h_it != props.end())
+					half = h_it->second.as<std::string>();
+				pal_data[i] = modern_trapdoor_p2(facedir, half == "top");
+				if (modern_prop_true(props, "open"))
+					name += "|open";
+			}
+
+			// Slabs have bottom, top and double Mineclonia node names.
+			if (name.size() >= 5 &&
+					name.compare(name.size() - 5, 5, "_slab") == 0) {
+				auto t_it = props.find("type");
+				if (t_it != props.end()) {
+					std::string type = t_it->second.as<std::string>();
+					if (type == "top" || type == "double")
+						name += "|" + type;
+				}
 			}
 			// Light block: MC `level` state (0-15) -> mcl_core:light_0..14.
 			// Mineclonia stops at light_14 (core.LIGHT_MAX), so clamp 15.
@@ -375,6 +479,50 @@ static void parse_modern_section(const NBT::Tag &section,
 				pal_data[i] = p2;
 				name += "|" + shape;
 			}
+			// Signs: preserve standing, wall and hanging orientations.
+			bool wall_hanging_sign = name.size() >= 18 &&
+					name.compare(name.size() - 18, 18, "_wall_hanging_sign") == 0;
+			bool hanging_sign = !wall_hanging_sign && name.size() >= 13 &&
+					name.compare(name.size() - 13, 13, "_hanging_sign") == 0;
+			bool wall_sign = !wall_hanging_sign && !hanging_sign &&
+					name.size() >= 10 &&
+					name.compare(name.size() - 10, 10, "_wall_sign") == 0;
+			bool standing_sign = !wall_sign && !wall_hanging_sign &&
+					!hanging_sign && name.size() >= 5 &&
+					name.compare(name.size() - 5, 5, "_sign") == 0;
+			if (standing_sign) {
+				pal_data[i] = modern_degrotate_for(modern_prop_int(props, "rotation"));
+			} else if (wall_sign) {
+				std::string facing = "north";
+				auto f_it = props.find("facing");
+				if (f_it != props.end()) facing = f_it->second.as<std::string>();
+				pal_data[i] = modern_wallmounted_for(facing);
+			} else if (hanging_sign || wall_hanging_sign) {
+				bool attached = hanging_sign && modern_prop_true(props, "attached");
+				if (attached) name += "|attached";
+				int rotation = modern_prop_int(props, "rotation");
+				auto f_it = props.find("facing");
+				if (attached) pal_data[i] = modern_degrotate_for(rotation);
+				else if (f_it != props.end()) pal_data[i] = static_cast<uint8_t>(modern_facedir_for(f_it->second.as<std::string>()));
+				else pal_data[i] = modern_fourdir_for(rotation);
+			}
+
+			// Buttons use Mineclonia's wallmounted param2.
+			if (name.size() >= 7 &&
+					name.compare(name.size() - 7, 7, "_button") == 0) {
+				std::string face = "wall";
+				auto face_it = props.find("face");
+				if (face_it != props.end()) face = face_it->second.as<std::string>();
+				if (face == "floor") pal_data[i] = 1;
+				else if (face == "ceiling") pal_data[i] = 0;
+				else {
+					std::string facing = "north";
+					auto f_it = props.find("facing");
+					if (f_it != props.end()) facing = f_it->second.as<std::string>();
+					pal_data[i] = modern_button_wallmounted_for(facing);
+				}
+			}
+
 			// Pointed dripstone: MC `vertical_direction` (up/down) picks
 			// the Mineclonia family (bottom_* stalagmite / top_* stalactite)
 			// and `thickness` (tip/frustum/middle/base) picks the stage.
@@ -417,19 +565,17 @@ static void parse_modern_section(const NBT::Tag &section,
 			if (banner_base_color(name) >= 0) {
 				uint8_t base = static_cast<uint8_t>(banner_base_color(name));
 				uint8_t state = 0;
-				if (name.size() >= 11 &&
-						name.compare(name.size() - 11, 11, "_wall_banner") == 0) {
-					// Hanging banner: param2 is wallmounted.  The output is
-					// a 180-degree-rotated world, so MC facing maps to:
-					// north->4 (Z-), south->5 (Z+), east->3 (X+), west->2 (X-).
+				if (name.size() >= 12 &&
+						name.compare(name.size() - 12, 12, "_wall_banner") == 0) {
+					// Hanging banner: north->5, south->4, east->3, west->2.
 					auto f_it = props.find("facing");
 					std::string facing = f_it == props.end() ?
 							"" : f_it->second.as<std::string>();
-					if (facing == "north") state = 4;
-					else if (facing == "south") state = 5;
+					if (facing == "north") state = 5;
+					else if (facing == "south") state = 4;
 					else if (facing == "east") state = 3;
 					else if (facing == "west") state = 2;
-					else state = 4;
+					else state = 5;
 				} else {
 					// Standing banner: keep the MC rotation (0-15) for the
 					// entity; the block-entity converter mirrors it.

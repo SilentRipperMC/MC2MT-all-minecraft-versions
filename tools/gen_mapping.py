@@ -56,9 +56,11 @@ def dynamic_nodes():
         d.add(f"mcl_trees:leaves_{w}")
         d.add(f"mcl_fences:{w}_fence")
         d.add(f"mcl_fences:{w}_fence_gate")
-        d.add(f"mcl_doors:door_{w}_t_1")
-        d.add(f"mcl_doors:door_{w}_t_2")
+        for half in ("b", "t"):
+            for state in ("1", "2"):
+                d.add(f"mcl_doors:door_{w}_{half}_{state}")
         d.add(f"mcl_doors:trapdoor_{w}")
+        d.add(f"mcl_doors:trapdoor_{w}_open")
         d.add(f"mcl_stairs:stair_{w}")
         d.add(f"mcl_stairs:slab_{w}")
         d.add(f"mcl_buttons:button_{w}_off")
@@ -66,6 +68,8 @@ def dynamic_nodes():
         d.add(f"mcl_signs:standing_sign_{w}")
         d.add(f"mcl_signs:wall_sign_{w}")
         d.add(f"mcl_signs:hanging_sign_{w}")
+        d.add(f"mcl_signs:hanging_sign_wall_{w}")
+        d.add(f"mcl_signs:hanging_sign_attached_{w}")
     for s in STAIR_SUBNAMES:
         d.add(f"mcl_stairs:stair_{s}")
         d.add(f"mcl_stairs:slab_{s}")
@@ -73,6 +77,18 @@ def dynamic_nodes():
         d.add(f"mcl_stairs:stair_{s}_outer")
         d.add(f"mcl_stairs:slab_{s}_double")
         d.add(f"mcl_stairs:slab_{s}_top")
+    # Iron and copper door APIs generate their state nodes dynamically.
+    for prefix in ("mcl_doors:iron_door", "mcl_copper:door",
+                   "mcl_copper:door_exposed", "mcl_copper:door_weathered",
+                   "mcl_copper:door_oxidized"):
+        for half in ("b", "t"):
+            for state in ("1", "2"):
+                d.add(f"{prefix}_{half}_{state}")
+    for prefix in ("mcl_doors:iron_trapdoor", "mcl_copper:trapdoor",
+                   "mcl_copper:trapdoor_exposed", "mcl_copper:trapdoor_weathered",
+                   "mcl_copper:trapdoor_oxidized"):
+        d.add(prefix)
+        d.add(prefix + "_open")
     for c in COLORS_MCL:
         d.add(f"mcl_wool:{c}")
         d.add(f"mcl_wool:{c}_carpet")
@@ -413,9 +429,11 @@ add("copper_bulb", "mcl_copper:bulb_off")
 add("raw_copper_block", "mcl_copper:block_raw")
 add("raw_iron_block", "mcl_raw_ores:raw_iron_block")
 add("raw_gold_block", "mcl_raw_ores:raw_gold_block")
-add("copper_door", "mcl_copper:door_t_1")
-add("copper_door|lower", "mcl_copper:door_t_1")
-add("copper_door|upper", "mcl_copper:door_t_2")
+add("copper_door", "mcl_copper:door_b_1")
+add("copper_door|lower", "mcl_copper:door_b_1")
+add("copper_door|upper", "mcl_copper:door_t_1")
+add("copper_door|lower|open", "mcl_copper:door_b_2")
+add("copper_door|upper|open", "mcl_copper:door_t_2")
 add("copper_trapdoor", "mcl_copper:trapdoor")
 add("copper_bars", "mcl_panes:copper_bar")
 add("copper_grate", "mcl_copper:block")
@@ -770,7 +788,7 @@ WOOD_FAMILIES = {
     "sign": "mcl_signs:standing_sign_{w}",
     "wall_sign": "mcl_signs:wall_sign_{w}",
     "hanging_sign": "mcl_signs:hanging_sign_{w}",
-    "wall_hanging_sign": "mcl_signs:hanging_sign_{w}",
+    "wall_hanging_sign": "mcl_signs:hanging_sign_wall_{w}",
 }
 
 # MC color -> MCL color
@@ -915,7 +933,9 @@ for mc_c, mcl_c in SHULKER.items():
 # undyed shulker box -> Mineclonia's canonical (violet)
 add("shulker_box", "mcl_chests:violet_shulker_box")
 
-# banners and beds (color via param2 in Mineclonia)
+# Minecraft has 16 colored banner block names, while Mineclonia uses one
+# node for each placement. The base color is stored in the converted banner
+# item metadata; the hanging node's wallmounted orientation remains param2.
 for c in COLOR_ALIAS:
     add(f"{c}_banner", "mcl_banners:standing_banner")
     add(f"{c}_wall_banner", "mcl_banners:hanging_banner")
@@ -929,10 +949,13 @@ for c in COLOR_ALIAS:
 # glass panes (colorless) + iron bars
 add("glass_pane", "mcl_panes:pane_white")
 add("iron_bars", "mcl_panes:bar")
-add("iron_door", "mcl_doors:iron_door_t_1")
-add("iron_door|lower", "mcl_doors:iron_door_t_1")
-add("iron_door|upper", "mcl_doors:iron_door_t_2")
+add("iron_door", "mcl_doors:iron_door_b_1")
+add("iron_door|lower", "mcl_doors:iron_door_b_1")
+add("iron_door|upper", "mcl_doors:iron_door_t_1")
+add("iron_door|lower|open", "mcl_doors:iron_door_b_2")
+add("iron_door|upper|open", "mcl_doors:iron_door_t_2")
 add("iron_trapdoor", "mcl_doors:iron_trapdoor")
+add("iron_trapdoor|open", "mcl_doors:iron_trapdoor_open")
 
 add("suspicious_gravel", "mcl_sus_nodes:gravel")
 add("suspicious_sand", "mcl_sus_nodes:sand")
@@ -975,16 +998,23 @@ def fill_wood():
             if mcl_w == "mangrove" and suffix == "sapling":
                 continue
             if suffix == "door":
-                # Doors are two halves in Mineclonia (_t_1 bottom, _t_2 top).
-                # The converter appends |lower / |upper from the "half"
-                # block state, so emit both variants plus the plain fallback.
-                FULL[key] = f"mcl_doors:door_{mcl_w}_t_1"
-                FULL[key + "|lower"] = f"mcl_doors:door_{mcl_w}_t_1"
-                FULL[key + "|upper"] = f"mcl_doors:door_{mcl_w}_t_2"
+                # Doors have separate bottom/top and closed/open nodes.
+                # The converter appends |lower / |upper and |open from
+                # the Minecraft block state.
+                base = f"mcl_doors:door_{mcl_w}"
+                FULL[key] = base + "_b_1"
+                FULL[key + "|lower"] = base + "_b_1"
+                FULL[key + "|upper"] = base + "_t_1"
+                FULL[key + "|lower|open"] = base + "_b_2"
+                FULL[key + "|upper|open"] = base + "_t_2"
             elif suffix == "stairs":
                 base = templ.replace("{w}", mcl_w)
                 FULL[key] = base
                 add_stair_shapes(key, base)
+            elif suffix == "trapdoor":
+                base = templ.replace("{w}", mcl_w)
+                FULL[key] = base
+                FULL[key + "|open"] = base + "_open"
             else:
                 FULL[key] = templ.replace("{w}", mcl_w)
 
@@ -1015,7 +1045,10 @@ def fill_stairs():
             FULL[mc] = base
             add_stair_shapes(mc, base)
         elif mc.endswith("_slab"):
-            FULL[mc] = f"mcl_stairs:slab_{sub}"
+            base = f"mcl_stairs:slab_{sub}"
+            FULL[mc] = base
+            FULL[mc + "|top"] = base + "_top"
+            FULL[mc + "|double"] = base + "_double"
 
 def fill_walls():
     for mc, node in WALL_MAP.items():
@@ -1026,6 +1059,43 @@ fill_wood()
 fill_colors()
 fill_stairs()
 fill_walls()
+
+# Add top/double variants for direct slab entries.
+for mc, node in list(FULL.items()):
+    if mc.endswith("_slab") and node.startswith("mcl_stairs:slab_"):
+        FULL[mc + "|top"] = node + "_top"
+        FULL[mc + "|double"] = node + "_double"
+
+# Correct direct door/trapdoor families not covered by wood families.
+def add_door_states(mc, base):
+    FULL[mc] = base + "_b_1"
+    FULL[mc + "|lower"] = base + "_b_1"
+    FULL[mc + "|upper"] = base + "_t_1"
+    FULL[mc + "|lower|open"] = base + "_b_2"
+    FULL[mc + "|upper|open"] = base + "_t_2"
+
+for mc, base in [
+    ("copper_door", "mcl_copper:door"),
+    ("exposed_copper_door", "mcl_copper:door_exposed"),
+    ("weathered_copper_door", "mcl_copper:door_weathered"),
+    ("oxidized_copper_door", "mcl_copper:door_oxidized"),
+    ("iron_door", "mcl_doors:iron_door"),
+]:
+    add_door_states(mc, base)
+
+for mc, base in [
+    ("copper_trapdoor", "mcl_copper:trapdoor"),
+    ("exposed_copper_trapdoor", "mcl_copper:trapdoor_exposed"),
+    ("weathered_copper_trapdoor", "mcl_copper:trapdoor_weathered"),
+    ("oxidized_copper_trapdoor", "mcl_copper:trapdoor_oxidized"),
+    ("iron_trapdoor", "mcl_doors:iron_trapdoor"),
+]:
+    FULL[mc] = base
+    FULL[mc + "|open"] = base + "_open"
+
+for mc_w, mcl_w in WOOD_ALIAS.items():
+    FULL[f"{mc_w}_hanging_sign|attached"] = f"mcl_signs:hanging_sign_attached_{mcl_w}"
+    FULL[f"{mc_w}_wall_hanging_sign"] = f"mcl_signs:hanging_sign_wall_{mcl_w}"
 
 # ---------------------------------------------------------------------------
 # 5. Validate + report
