@@ -1649,7 +1649,7 @@ const std::map<std::string, std::string> &direct_nodes()
 		{"weeping_vines", "mcl_crimson:weeping_vines"},
 		{"weeping_vines_plant", "mcl_crimson:weeping_vines"},
 		{"wet_sponge", "mcl_sponges:sponge_wet"},
-		{"wheat", "mcl_farming:wheat_1"},
+		{"wheat", "mcl_farming:wheat"},
 		{"white_banner", "mcl_banners:standing_banner"},
 		{"white_bed", "mcl_beds:bed_white_bottom"},
 		{"white_bed|foot", "mcl_beds:bed_white_bottom"},

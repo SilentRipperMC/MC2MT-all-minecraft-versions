@@ -197,6 +197,20 @@ static uint32_t modern_extract(const NBT::Long *longs, int bits, int i)
 			(static_cast<uint64_t>(longs[idx]) >> off) & mask);
 }
 
+// The pre-1.18 BlockStates array packs values continuously, so values can
+// cross a 64-bit boundary.  The newer block_states/data format pads each
+// long and uses modern_extract() above.
+static uint32_t modern_extract_contiguous(const NBT::Long *longs, int bits, int i)
+{
+	uint64_t bit = static_cast<uint64_t>(i) * bits;
+	int idx = static_cast<int>(bit / 64);
+	int off = static_cast<int>(bit % 64);
+	uint64_t value = static_cast<uint64_t>(longs[idx]) >> off;
+	if (off + bits > 64)
+		value |= static_cast<uint64_t>(longs[idx + 1]) << (64 - off);
+	return static_cast<uint32_t>(value & ((1ULL << bits) - 1ULL));
+}
+
 
 // Returns a lookup (by exact name) for a value, or -1.
 static int modern_prop_int(const NBT::Compound & props, const char *key)
@@ -254,13 +268,42 @@ static uint8_t modern_button_wallmounted_for(const std::string &facing)
 	return 2;  // west
 }
 
-// Hanging banners use the same wallmounted range, but exchange 4 and 5.
-static uint8_t modern_banner_wallmounted_for(const std::string &facing)
+// Wall signs, ladders and hanging banners render mirrored vs. the
+// generic wallmounted facing: exchange the north/south param2 (4 <-> 5).
+static uint8_t modern_wallmounted_swapped_for(const std::string &facing)
 {
 	uint8_t p2 = modern_wallmounted_for(facing);
 	if (p2 == 4) return 5;
 	if (p2 == 5) return 4;
 	return p2;
+}
+
+// Amethyst buds: Mineclonia renders the north/south orientations
+// mirrored (like the wall signs/ladders), so exchange 4 <-> 5.  The
+// up/down and east/west faces render correctly with the plain
+// wallmounted values: up = floor = 1, down = ceiling = 0,
+// east = 3, west = 2.
+static uint8_t modern_bud_wallmounted_for(const std::string &facing)
+{
+	if (facing == "up") return 1;
+	if (facing == "down") return 0;
+	if (facing == "north") return 5;
+	if (facing == "south") return 4;
+	if (facing == "east") return 3;
+	return 2;  // west
+}
+
+// Glow lichen and sculk veins: Mineclonia renders these mirrored on
+// the floor/ceiling and east/west faces (1 <-> 0, 3 <-> 2), while the
+// north/south faces render correctly.
+static uint8_t modern_patch_wallmounted_for(const std::string &facing)
+{
+	if (facing == "up") return 0;
+	if (facing == "down") return 1;
+	if (facing == "north") return 4;
+	if (facing == "south") return 5;
+	if (facing == "east") return 2;
+	return 3;  // west
 }
 
 static uint8_t modern_degrotate_for(int rotation)
@@ -328,8 +371,8 @@ static void parse_modern_section(const NBT::Tag &section,
 {
 	const NBT::Compound &sec = section;
 	auto bs_it = sec.find("block_states");
-	if (bs_it == sec.end()) {
-		// Section without block_states: everything is air.
+	if (bs_it == sec.end() && sec.find("Palette") == sec.end()) {
+		// Section without block states: everything is air.
 		palette_names.clear();
 		palette_names.push_back("air");
 		for (int i = 0; i < NODES_PER_BLOCK; ++i) {
@@ -339,8 +382,15 @@ static void parse_modern_section(const NBT::Tag &section,
 		}
 		return;
 	}
-	const NBT::Compound &bs = bs_it->second;
+	// Minecraft 1.13-1.17 uses Palette/BlockStates directly in the
+	// section, while 1.18+ nests palette/data under block_states.
+	const NBT::Compound *bs_ptr = &sec;
+	if (bs_it != sec.end() && bs_it->second.type == NBT::TagType::Compound)
+		bs_ptr = &static_cast<const NBT::Compound &>(bs_it->second);
+	const NBT::Compound &bs = *bs_ptr;
 	auto pit = bs.find("palette");
+	if (pit == bs.end())
+		pit = sec.find("Palette");
 	if (pit == bs.end()) {
 		// Fully empty section: everything is air.
 		palette_names.clear();
@@ -358,12 +408,29 @@ static void parse_modern_section(const NBT::Tag &section,
 	std::vector<uint8_t> pal_data(pal.size, 0);
 	for (NBT::UInt i = 0; i < pal.size; ++i) {
 		const NBT::Tag & entry = pal.value[i];
-		std::string full = entry["Name"].as<std::string>();
+		const NBT::Compound & entry_map = entry;
+		auto name_it = entry_map.find("Name");
+		// A valid Minecraft palette always has Name, but malformed or
+		// partially-written chunks must not abort a whole-world conversion.
+		if (name_it == entry_map.end() || name_it->second.type != NBT::TagType::String) {
+			palette_names.push_back("air");
+			continue;
+		}
+		std::string full = name_it->second.as<std::string>();
 		size_t colon = full.find(':');
 		std::string name = colon == std::string::npos ?
 				full : full.substr(colon + 1);
 		try {
-			const NBT::Compound & props = entry["Properties"];
+			// Properties is optional for ordinary blocks.  Do not use the
+			// const Tag::operator[] here: it calls map::at() and throws for
+			// every palette entry without properties.
+			NBT::Compound empty_props;
+			const NBT::Compound *props_ptr = &empty_props;
+			auto props_it = entry_map.find("Properties");
+			if (props_it != entry_map.end() &&
+					props_it->second.type == NBT::TagType::Compound)
+				props_ptr = &static_cast<const NBT::Compound &>(props_it->second);
+			const NBT::Compound & props = *props_ptr;
 			// Doors have distinct Mineclonia nodes for bottom/top and
 			// closed/open.  Keep both block states in the lookup key.
 			if (name.size() >= 5 &&
@@ -496,7 +563,9 @@ static void parse_modern_section(const NBT::Tag &section,
 				std::string facing = "north";
 				auto f_it = props.find("facing");
 				if (f_it != props.end()) facing = f_it->second.as<std::string>();
-				pal_data[i] = modern_wallmounted_for(facing);
+				// Mineclonia's wall sign textures render mirrored vs. the
+				// MC facing: exchange the north/south wallmounted param2.
+				pal_data[i] = modern_wallmounted_swapped_for(facing);
 			} else if (hanging_sign || wall_hanging_sign) {
 				bool attached = hanging_sign && modern_prop_true(props, "attached");
 				if (attached) name += "|attached";
@@ -505,6 +574,26 @@ static void parse_modern_section(const NBT::Tag &section,
 				if (attached) pal_data[i] = modern_degrotate_for(rotation);
 				else if (f_it != props.end()) pal_data[i] = static_cast<uint8_t>(modern_facedir_for(f_it->second.as<std::string>()));
 				else pal_data[i] = modern_fourdir_for(rotation);
+			}
+
+			// Ladders: MC `facing` -> Mineclonia wallmounted param2
+			// (same mirrored convention as the wall signs).
+			if (name == "ladder") {
+				std::string facing = "north";
+				auto f_it = props.find("facing");
+				if (f_it != props.end()) facing = f_it->second.as<std::string>();
+				pal_data[i] = modern_wallmounted_swapped_for(facing);
+			}
+			// Fence gates: MC `facing` -> Mineclonia facedir param2, and
+			// the `open` state picks the *_fence_gate_open node.
+			if (name.size() >= 11 &&
+					name.compare(name.size() - 11, 11, "_fence_gate") == 0) {
+				std::string facing = "north";
+				auto f_it = props.find("facing");
+				if (f_it != props.end()) facing = f_it->second.as<std::string>();
+				pal_data[i] = static_cast<uint8_t>(modern_facedir_for(facing));
+				if (modern_prop_true(props, "open"))
+					name += "|open";
 			}
 
 			// Buttons use Mineclonia's wallmounted param2.
@@ -560,6 +649,73 @@ static void parse_modern_section(const NBT::Tag &section,
 				}
 				pal_data[i] = p;
 			}
+			// Torches: Mineclonia's floor node (mcl_torches:torch,
+			// soul/redstone/copper variants) is wallmounted with
+			// place_param2 = 1 (standing on the floor).  The wall variant
+			// uses the plain wallmounted facing (no mirror, unlike the
+			// wall signs/ladders).
+			if (name == "torch" || name == "soul_torch" ||
+					name == "redstone_torch" || name == "copper_torch") {
+				pal_data[i] = 1;
+			} else if (name == "wall_torch" ||
+					(name.size() >= 11 &&
+					 name.compare(name.size() - 11, 11, "_wall_torch") == 0)) {
+				std::string facing = "north";
+				auto f_it = props.find("facing");
+				if (f_it != props.end()) facing = f_it->second.as<std::string>();
+				pal_data[i] = modern_wallmounted_for(facing);
+			}
+			// Amethyst buds grow on any face: the MC `facing` (the
+			// direction the bud points) maps to the Mineclonia
+			// wallmounted param2 (up = floor = 1).
+			if (name == "amethyst_cluster" ||
+					(name.size() >= 13 &&
+					 name.compare(name.size() - 13, 13, "_amethyst_bud") == 0)) {
+				std::string facing = "up";
+				auto f_it = props.find("facing");
+				if (f_it != props.end()) facing = f_it->second.as<std::string>();
+				pal_data[i] = modern_bud_wallmounted_for(facing);
+			}
+			// Chains are facedir nodes in Mineclonia; the MC `axis` maps
+			// onto the axis-facedir values used by mcl_lanterns
+			// (20 = vertical, 12 = x, 4 = z).
+			if (name == "chain" ||
+					(name.size() >= 6 &&
+					 name.compare(name.size() - 6, 6, "_chain") == 0)) {
+				std::string axis = "y";
+				auto a_it = props.find("axis");
+				if (a_it != props.end()) axis = a_it->second.as<std::string>();
+				if (axis == "x") pal_data[i] = 12;
+				else if (axis == "z") pal_data[i] = 4;
+				else pal_data[i] = 20;
+			}
+			// Glow lichen and sculk veins are single-face wallmounted
+			// patches in Mineclonia; MC stores each covered face as a
+			// boolean, so keep the first present face (up first: most
+			// are on the floor).
+			if (name == "glow_lichen" || name == "sculk_vein") {
+				const char *faces[] = {"up", "down", "north", "south",
+						"east", "west"};
+				uint8_t p2 = modern_patch_wallmounted_for("up");
+				for (const char *f : faces) {
+					auto fit = props.find(f);
+					if (fit != props.end() &&
+							fit->second.as<std::string>() == "true") {
+						p2 = modern_patch_wallmounted_for(f);
+						break;
+					}
+				}
+				pal_data[i] = p2;
+			}
+			// Mineclonia floor lanterns (*_floor) are wallmounted with
+			// place_param2 = 1 (floor).  A plain param2 of 0 would render
+			// them as if hanging from a ceiling.  sea_lantern is a full
+			// block and must not be touched.
+			if ((name == "lantern" ||
+					(name.size() >= 8 &&
+					 name.compare(name.size() - 8, 8, "_lantern") == 0)) &&
+					name != "sea_lantern")
+				pal_data[i] = 1;
 			// Banners: color lives in the block name; the block-entity
 			// converter reads (base_color << 4) | state from node_data.
 			if (banner_base_color(name) >= 0) {
@@ -600,6 +756,8 @@ static void parse_modern_section(const NBT::Tag &section,
 	}
 
 	auto dit = bs.find("data");
+	if (dit == bs.end())
+		dit = sec.find("BlockStates");
 	if (dit == bs.end()) {
 		// Multi-entry palette without a data array (unusual): use index 0.
 		for (int i = 0; i < NODES_PER_BLOCK; ++i) {
@@ -611,9 +769,12 @@ static void parse_modern_section(const NBT::Tag &section,
 	}
 	const NBT::LongArray data = dit->second;
 	int bits = modern_bits_for_palette(pal_size);
+	bool contiguous = sec.find("BlockStates") != sec.end();
 	for (int i = 0; i < NODES_PER_BLOCK; ++i) {
-		indices[i] = static_cast<uint16_t>(
-				modern_extract(data.value, bits, i));
+		uint32_t palette_index = contiguous ?
+				modern_extract_contiguous(data.value, bits, i) :
+				modern_extract(data.value, bits, i);
+		indices[i] = static_cast<uint16_t>(palette_index);
 		if (node_data)
 			node_data[i] = pal_data[indices[i]];
 	}
@@ -629,18 +790,44 @@ bool MCMap::readChunk(MCChunk * chunk, std::ifstream * f, MCChunkPos cp, MCForma
 	NBT::Tag nbt_data(reinterpret_cast<const NBT::UByte *>(data.data()));
 	NBT::Tag & root = nbt_data[""];
 	bool modern = false;
+	bool wrapped_modern = false;
 	{
 		const NBT::Compound & rc = root;
 		modern = rc.find("sections") != rc.end();
+		if (!modern) {
+			auto level_it = rc.find("Level");
+			if (level_it != rc.end() && level_it->second.type == NBT::TagType::Compound) {
+				const NBT::Compound & level_map = level_it->second;
+				auto sections_it = level_map.find("Sections");
+				if (sections_it != level_map.end() &&
+						sections_it->second.type == NBT::TagType::List) {
+					const NBT::List & sections = sections_it->second;
+					for (NBT::UInt si = 0; si < sections.size; ++si) {
+						if (sections.value[si].type != NBT::TagType::Compound)
+							continue;
+						const NBT::Compound & section = sections.value[si];
+						if (section.find("block_states") != section.end() ||
+								section.find("Palette") != section.end()) {
+							modern = true;
+							wrapped_modern = true;
+							break;
+						}
+					}
+				}
+			}
+		}
 	}
-	NBT::Tag & level = modern ? root : root["Level"];
+	NBT::Tag & level = modern && !wrapped_modern ? root : root["Level"];
 
 	switch (format) {
 	case MCFormat::Anvil: {
-		const NBT::List secs = level[modern ? "sections" : "Sections"];
+		const NBT::List secs = level[modern && !wrapped_modern ? "sections" : "Sections"];
 		for (uint32_t i = 0; i < secs.size; ++i) {
 			NBT::Tag & sec = secs.value[i];
-			if (modern) {
+			const NBT::Compound & sec_map = sec;
+			bool modern_section = modern &&
+					sec_map.find("Blocks") == sec_map.end();
+			if (modern_section) {
 				int cy = static_cast<int>(sec["Y"].as<NBT::Byte>());
 				int legacy_y = cy + modern_shift_sub;
 				if (legacy_y < 0 ||
@@ -689,9 +876,38 @@ void MCMap::scanModern()
 			NBT::Tag nbt_data(reinterpret_cast<const NBT::UByte *>(data.data()));
 			NBT::Tag & root = nbt_data[""];
 			const NBT::Compound & rc = root;
-			if (rc.find("sections") == rc.end())
+			NBT::List secs{};
+			bool have_sections = false;
+			auto sections_it = rc.find("sections");
+			if (sections_it != rc.end() &&
+					sections_it->second.type == NBT::TagType::List) {
+				secs = sections_it->second.as<NBT::List>();
+				have_sections = true;
+			} else {
+				auto level_it = rc.find("Level");
+				if (level_it != rc.end() &&
+						level_it->second.type == NBT::TagType::Compound) {
+					const NBT::Compound & level_map = level_it->second;
+					auto wrapped_it = level_map.find("Sections");
+					if (wrapped_it != level_map.end() &&
+							wrapped_it->second.type == NBT::TagType::List) {
+						const NBT::List & wrapped = wrapped_it->second;
+						for (NBT::UInt si = 0; si < wrapped.size; ++si) {
+							if (wrapped.value[si].type != NBT::TagType::Compound)
+								continue;
+							const NBT::Compound & section = wrapped.value[si];
+							if (section.find("block_states") != section.end() ||
+									section.find("Palette") != section.end()) {
+								secs = wrapped_it->second.as<NBT::List>();
+								have_sections = true;
+								break;
+							}
+						}
+					}
+				}
+			}
+			if (!have_sections)
 				continue;
-			const NBT::List secs = root["sections"];
 			for (NBT::UInt i = 0; i < secs.size; ++i) {
 				NBT::Tag & sec = secs.value[i];
 				int cy = static_cast<int>(sec["Y"].as<NBT::Byte>());
@@ -789,22 +1005,33 @@ void MCMap::scanModern()
 		// legacy be_convert table applies.
 		const NBT::Compound & chd = chunk;
 		auto be_it = chd.find("block_entities");
+		// 1.13-1.17/wrapped modern chunks call this list TileEntities.
+		if (be_it == chd.end())
+			be_it = chd.find("TileEntities");
 		if (be_it != chd.end()) {
 			const NBT::List & bes = be_it->second;
 			int cy = y_slice - modern_shift_sub;
 			for (unsigned i = 0; i < bes.size; ++i) {
 				const NBT::Tag & te = bes.value[i];
-				int32_t by = static_cast<int32_t>(te["y"]);
+				const NBT::Compound & te_map = te;
+				auto y_it = te_map.find("y");
+				auto x_it = te_map.find("x");
+				auto z_it = te_map.find("z");
+				auto id_it = te_map.find("id");
+				if (y_it == te_map.end() || x_it == te_map.end() ||
+						z_it == te_map.end() || id_it == te_map.end())
+					continue;
+				int32_t by = static_cast<int32_t>(y_it->second);
 				if ((by >> 4) != cy)
 					continue;
 				NBT::Tag t(te);  // Copy
-				int32_t bx = static_cast<int32_t>(te["x"]);
-				int32_t bz = static_cast<int32_t>(te["z"]);
+				int32_t bx = static_cast<int32_t>(x_it->second);
+				int32_t bz = static_cast<int32_t>(z_it->second);
 				t["x"] = bx & 0xF;
 				t["y"] = (by & 0xF);
 				t["z"] = 15 - (bz & 0xF);
 				// Strip the "minecraft:" namespace from the id.
-				std::string bid = te["id"].as<std::string>();
+				std::string bid = id_it->second.as<std::string>();
 				size_t colon = bid.find(':');
 				if (colon != std::string::npos)
 					bid = bid.substr(colon + 1);
@@ -847,8 +1074,18 @@ void MCBlock::fromSection(const NBT::Tag & section)
 	 * the X order while leaving Y and Z the same.
 	 */
 	const NBT::Compound & sec = section;
-
-	reverseXAxis(blocks, GNBTRBA(sec.at("Blocks")));
+	// Legacy sections normally contain all four arrays, but tolerate
+	// incomplete sections instead of letting const map::at() abort the
+	// whole conversion.
+	auto blocks_it = sec.find("Blocks");
+	if (blocks_it == sec.end()) {
+		std::memset(blocks, 0, sizeof(blocks));
+		std::memset(data, 0, sizeof(data));
+		std::memset(sky_light, 0, sizeof(sky_light));
+		std::memset(block_light, 0, sizeof(block_light));
+		return;
+	}
+	reverseXAxis(blocks, GNBTRBA(blocks_it->second));
 
 	// "Add" array is optional
 	auto it = sec.find("Add");
@@ -861,10 +1098,23 @@ void MCBlock::fromSection(const NBT::Tag & section)
 		}
 	}
 
-	// Data, sky light, and block light are 4-bit
-	expandHalfBytes(data,        GNBTRBA(sec.at("Data")));
-	expandHalfBytes(sky_light,   GNBTRBA(sec.at("SkyLight")));
-	expandHalfBytes(block_light, GNBTRBA(sec.at("BlockLight")));
+	// Data, sky light, and block light are 4-bit.  Missing light arrays
+	// occur in partially written chunks and are equivalent to zero light.
+	auto data_it = sec.find("Data");
+	auto sky_it = sec.find("SkyLight");
+	auto block_light_it = sec.find("BlockLight");
+	if (data_it != sec.end())
+		expandHalfBytes(data, GNBTRBA(data_it->second));
+	else
+		std::memset(data, 0, sizeof(data));
+	if (sky_it != sec.end())
+		expandHalfBytes(sky_light, GNBTRBA(sky_it->second));
+	else
+		std::memset(sky_light, 0, sizeof(sky_light));
+	if (block_light_it != sec.end())
+		expandHalfBytes(block_light, GNBTRBA(block_light_it->second));
+	else
+		std::memset(block_light, 0, sizeof(block_light));
 }
 
 

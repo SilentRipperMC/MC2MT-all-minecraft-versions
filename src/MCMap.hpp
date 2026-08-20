@@ -49,7 +49,7 @@ public:
 
 	// Single-threaded pre-pass over a modern (1.18+) world: collects every
 	// distinct block state into modern_registry and computes modern_shift_sub
-	// so content below Y=0 fits inside the 256-block height MC2MT supports.
+	// so content below Y=0 fits inside the 384-block height MC2MT supports.
 	void scanModern();
 
 private:

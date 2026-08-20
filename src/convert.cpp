@@ -436,8 +436,13 @@ std::pair<bool, MTNodeMeta*> convert_sign(const NBT::Tag &te,
 
 	// Legacy pre-1.20 sign: Text1..Text4 fields.
 	std::string text;
+	const NBT::Compound & legacy_sign = te;
 	for (unsigned i = 1; i < 5; ++i) {
-		NBT::String line = te["Text" + std::to_string(i)];
+		auto line_it = legacy_sign.find("Text" + std::to_string(i));
+		if (line_it == legacy_sign.end() ||
+				line_it->second.type != NBT::TagType::String)
+			continue;
+		NBT::String line = line_it->second;
 		if (!line.size)
 			continue;
 		std::string sline(line.value, line.size);

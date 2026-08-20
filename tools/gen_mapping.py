@@ -604,7 +604,7 @@ add("copper_lantern", "mcl_lanterns:copper_lantern_floor")
 add("exposed_copper_lantern", "mcl_lanterns:copper_lantern_exposed_floor")
 add("weathered_copper_lantern", "mcl_lanterns:copper_lantern_weathered_floor")
 add("oxidized_copper_lantern", "mcl_lanterns:copper_lantern_oxidized_floor")
-add("copper_wall_torch", "mcl_copper:copper_torch")
+add("copper_wall_torch", "mcl_copper:copper_torch_wall")
 add("exposed_copper_chain", "mcl_lanterns:copper_chain_exposed")
 add("weathered_copper_chain", "mcl_lanterns:copper_chain_weathered")
 add("oxidized_copper_chain", "mcl_lanterns:copper_chain_oxidized")
@@ -663,7 +663,7 @@ add("pink_petals", "mcl_flowers:pink_petals_1")
 add("wildflowers", "mcl_flowers:wildflowers_1")
 add("brown_mushroom", "mcl_mushrooms:mushroom_brown")
 add("red_mushroom", "mcl_mushrooms:mushroom_red")
-add("wheat", "mcl_farming:wheat_1")
+add("wheat", "mcl_farming:wheat")
 add("carrots", "mcl_farming:carrot_1")
 add("potatoes", "mcl_farming:potato_1")
 add("beetroots", "mcl_farming:beetroot_1")
@@ -719,7 +719,7 @@ add("heavy_weighted_pressure_plate", "mcl_pressureplates:pressure_plate_heavy_of
 add("light_weighted_pressure_plate", "mcl_pressureplates:pressure_plate_light_off")
 add("powered_rail", "mcl_minecarts:golden_rail")
 add("redstone_wall_torch", "mcl_redstone_torch:redstone_torch_off_wall")
-add("soul_wall_torch", "mcl_blackstone:soul_torch")
+add("soul_wall_torch", "mcl_blackstone:soul_torch_wall")
 add("stone_button", "mcl_buttons:button_stone_off")
 add("smooth_stone_slab", "mcl_stairs:slab_stone")
 add("structure_void", "air")
@@ -1012,6 +1012,12 @@ def fill_wood():
                 FULL[key] = base
                 add_stair_shapes(key, base)
             elif suffix == "trapdoor":
+                base = templ.replace("{w}", mcl_w)
+                FULL[key] = base
+                FULL[key + "|open"] = base + "_open"
+            elif suffix == "fence_gate":
+                # Fence gates have a closed and an open node; the
+                # converter appends |open from the MC block state.
                 base = templ.replace("{w}", mcl_w)
                 FULL[key] = base
                 FULL[key + "|open"] = base + "_open"

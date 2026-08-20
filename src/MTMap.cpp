@@ -79,9 +79,24 @@ MTMap::MTMap(const std::string & path) :
 
 	std::ofstream modf;
 	modf.open(path + "/worldmods/__mc2mt/init.lua");
-	modf << "minetest.set_mapgen_params({chunksize = 1})\n"
-		 << "minetest.set_mapgen_params({mgname = 'singlenode'})\n";
+	modf << "minetest.set_mapgen_setting('mg_name', 'singlenode', true)\n"
+		 << "minetest.set_mapgen_setting('chunksize', '1', true)\n"
+		 << "minetest.set_mapgen_setting('mcl_singlenode_mapgen', 'false', true)\n";
 	modf.close();
+
+	// Proper mod identity (removes the "mod without mod.conf" warning).
+	std::ofstream modconf;
+	modconf.open(path + "/worldmods/__mc2mt/mod.conf");
+	modconf << "name = __mc2mt\n";
+	modconf.close();
+
+	// Keep Mineclonia's own mcl_levelgen mapgen disabled so the converted
+	// map is used as-is: no terrain regeneration, no spawn-area emerge, and
+	// no chunk protection.
+	std::ofstream levelconf;
+	levelconf.open(path + "/worldmods/__mc2mt/mcl_levelgen.conf");
+	levelconf << "disable_mcl_levelgen = true\n";
+	levelconf.close();
 
 	std::string map_sqlite = path + "/map.sqlite";
 
@@ -253,7 +268,8 @@ MTBlock::MTBlock(const MCBlock & mcb)
 			if (nm.compare(0, 17, "mcl_stairs:stair_") == 0 ||
 					nm.compare(0, 10, "mcl_doors:") == 0 ||
 					nm.compare(0, 10, "mcl_signs:") == 0 ||
-					nm.compare(0, 12, "mcl_buttons:") == 0) {
+					nm.compare(0, 12, "mcl_buttons:") == 0 ||
+					nm.compare(0, 13, "mcl_lanterns:") == 0) {
 				param2[i] = mcb.data[i];
 			} else {
 				param2[i] = mcb.data[i] & 0xF;
@@ -282,16 +298,29 @@ MTBlock::MTBlock(const MCBlock & mcb)
 	}
 
 	for (const auto & te : mcb.tile_entities) {
-		NBT::String id = te["id"];
+		// Block entities are external data and a few Minecraft versions or
+		// editors can leave incomplete entries behind.  Const Tag::operator[]
+		// uses map::at(), so validate the required fields before reading them.
+		const NBT::Compound & te_map = te;
+		auto id_it = te_map.find("id");
+		auto x_it = te_map.find("x");
+		auto y_it = te_map.find("y");
+		auto z_it = te_map.find("z");
+		if (id_it == te_map.end() || x_it == te_map.end() ||
+				y_it == te_map.end() || z_it == te_map.end())
+			continue;
+		if (id_it->second.type != NBT::TagType::String)
+			continue;
+		NBT::String id = id_it->second;
 		auto it = be_convert.find(std::string(id.value, id.size));
 		if (it == be_convert.end())
 			continue;
 
 		auto converter = it->second;
 
-		int32_t x = (NBT::Int)te["x"];
-		int32_t y = (NBT::Int)te["y"];
-		int32_t z = (NBT::Int)te["z"];
+		int32_t x = static_cast<int32_t>(x_it->second);
+		int32_t y = static_cast<int32_t>(y_it->second);
+		int32_t z = static_cast<int32_t>(z_it->second);
 		uint16_t idx = BLOCK_NODE_IDX(x & 0xF, y & 0xF, z & 0xF);
 		// The banner converter needs the per-node state (base color and
 		// rotation/wallmounted, packed in mcb.data) and whether the node
